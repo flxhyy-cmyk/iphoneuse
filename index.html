@@ -75,8 +75,10 @@ mark{background:var(--hl);color:inherit;border-radius:2px}
 .toast.on{transform:translateX(-50%) translateY(0)}
 .toast.warn{background:#8e8e93}
 .pill.alt{background:var(--chip);color:var(--text);margin-right:8px}
-.chat-wrap{display:flex;flex-direction:column;height:100vh;height:100dvh}
-.chat-msgs{flex:1;overflow-y:auto;padding:8px 12px 12px;-webkit-overflow-scrolling:touch}
+.lock,.lock body{overflow:hidden;overscroll-behavior:none}
+.chat-wrap{position:fixed;left:0;right:0;top:0;height:100vh;height:100dvh;max-width:720px;margin:0 auto;
+  display:flex;flex-direction:column;background:var(--bg)}
+.chat-msgs{flex:1;min-height:0;overflow-y:auto;padding:8px 12px 12px;-webkit-overflow-scrolling:touch;overscroll-behavior:contain}
 .row{display:flex;margin:6px 0}
 .row.me{justify-content:flex-end}
 .row>div{max-width:82%;min-width:0}
@@ -87,10 +89,14 @@ mark{background:var(--hl);color:inherit;border-radius:2px}
 .bmeta{font-size:11px;color:var(--sub);margin-top:3px;display:flex;gap:10px;-webkit-user-select:none;user-select:none}
 .bmeta button{border:0;background:none;color:var(--accent);font-size:12px;padding:0;cursor:pointer}
 .row.me .bmeta{justify-content:flex-end}
-.compose{display:flex;gap:8px;padding:8px 12px calc(env(safe-area-inset-bottom) + 8px);background:var(--bg);border-top:1px solid var(--line)}
-.compose textarea{flex:1;border:0;border-radius:18px;padding:9px 14px;background:var(--card);color:var(--text);
-  font:16px/1.4 inherit;font-family:inherit;resize:none;max-height:120px;outline:none}
-.compose button{border:0;border-radius:18px;background:var(--accent);color:#000;font-weight:600;padding:0 18px;font-size:16px;cursor:pointer}
+.compose{flex:none;display:flex;flex-direction:column;gap:8px;padding:8px 12px calc(env(safe-area-inset-bottom) + 8px);
+  background:var(--bg);border-top:1px solid var(--line)}
+.compose textarea{width:100%;border:0;border-radius:12px;padding:10px 14px;background:var(--card);color:var(--text);
+  font-size:16px;line-height:1.4;font-family:inherit;resize:none;min-height:44px;max-height:120px;outline:none;display:block}
+#chat-status{min-height:18px;line-height:18px}
+.cbtns{display:flex;gap:8px}
+.cbtns button{flex:1;border:0;border-radius:12px;height:42px;background:var(--accent);color:#000;font-weight:600;font-size:16px;cursor:pointer}
+.cbtns button.alt{background:var(--chip);color:var(--text)}
 .compose button:disabled{opacity:.5}
 .sep{height:1px;background:var(--line);margin:28px 4px 0}
 .back{border:0;background:none;color:var(--accent);font-size:17px;cursor:pointer;padding:0}
@@ -160,7 +166,10 @@ mark{background:var(--hl);color:inherit;border-radius:2px}
       <div class="chat-msgs" id="chat-msgs"></div>
       <div class="compose">
         <textarea id="chat-input" rows="1" placeholder="输入要发到电脑的文字" autocomplete="off"></textarea>
-        <button id="chat-send">发送</button>
+        <div class="cbtns">
+          <button id="chat-paste" class="alt">📋 粘贴发送</button>
+          <button id="chat-send">发送</button>
+        </div>
       </div>
     </div>
   </section>
@@ -231,6 +240,8 @@ mark{background:var(--hl);color:inherit;border-radius:2px}
   }
   function show(id){
     if(id!=="v-chat") stopChat();
+    document.documentElement.classList.toggle("lock",id==="v-chat");
+    if(id==="v-chat") fitChat(); 
     ["v-list","v-detail","v-settings","v-chat"].forEach(function(v){$(v).classList.toggle("on",v===id)});
     window.scrollTo(0,0);
   }
@@ -516,6 +527,17 @@ mark{background:var(--hl);color:inherit;border-radius:2px}
       cStatus("⚠️ "+msg);
     }).then(function(){chat.busy=false});
   }
+  function fitChat(){
+    var w=document.querySelector(".chat-wrap"), vv=window.visualViewport;
+    if(!w) return;
+    if(vv){w.style.height=vv.height+"px";w.style.top=vv.offsetTop+"px"}
+    else{w.style.height="";w.style.top=""}
+    var box=$("chat-msgs"); if(box&&chat.active) box.scrollTop=box.scrollHeight;
+  }
+  if(window.visualViewport){
+    window.visualViewport.addEventListener("resize",fitChat);
+    window.visualViewport.addEventListener("scroll",function(){if(chat.active){window.scrollTo(0,0);fitChat()}});
+  }
   function stopChat(){chat.active=false;if(chat.timer){clearInterval(chat.timer);chat.timer=null}}
   function startChat(){
     show("v-chat"); chat.active=true;
@@ -525,11 +547,12 @@ mark{background:var(--hl);color:inherit;border-radius:2px}
     chatPoll(true);
     chat.timer=setInterval(function(){if(!document.hidden) chatPoll(false)},POLL_MS);
   }
-  function chatSend(){
-    var ta=$("chat-input"), text=ta.value.replace(/\s+$/,"");
+  function chatSend(override){
+    var ta=$("chat-input"), fromPaste=(typeof override==="string");
+    var text=(fromPaste?override:ta.value).replace(/\s+$/,"");
     if(!text) return;
     var cfg=chatCfg(); if(!cfg){cStatus("尚未配置：点右上角 ⚙︎ 填写聊天仓库和令牌");return}
-    var btn=$("chat-send"); btn.disabled=true;
+    var btns=[$("chat-send"),$("chat-paste")]; btns.forEach(function(b){b.disabled=true});
     var rnd=Math.random().toString(36).slice(2,6);
     var d=new Date(), p=function(n,l){n=String(n);while(n.length<(l||2))n="0"+n;return n};
     var name=d.getUTCFullYear()+p(d.getUTCMonth()+1)+p(d.getUTCDate())+p(d.getUTCHours())+p(d.getUTCMinutes())+p(d.getUTCSeconds())+p(d.getUTCMilliseconds(),3)+"-"+DEVICE+"-"+rnd+".json";
@@ -544,19 +567,31 @@ mark{background:var(--hl);color:inherit;border-radius:2px}
         throw new Error(m)});
     }).then(function(){
       msg.name=name; chat.msgs[name]=msg; chat.names=Object.keys(chat.msgs).sort();
-      ta.value=""; ta.style.height="auto"; chatRender(true); cStatus("已发送");
+      if(!fromPaste){ta.value=""; ta.style.height="auto"}
+      chatRender(true); cStatus(fromPaste?"已粘贴并发送":"已发送");
     }).catch(function(e){
       var m=(e&&e.message)||String(e);
       if(/Failed to fetch|NetworkError|Load failed/i.test(m)) m="网络连接失败，发送未成功，请重试";
       if(/Resource not accessible|403/.test(m)) m+="（令牌需要 Contents: Read and write 权限）";
       cStatus("⚠️ 发送失败："+m);
-    }).then(function(){btn.disabled=false});
+    }).then(function(){btns.forEach(function(b){b.disabled=false})});
+  }
+  function chatPasteSend(){
+    if(!navigator.clipboard||!navigator.clipboard.readText){
+      cStatus("⚠️ 此浏览器不支持读取剪贴板，请在输入框里长按粘贴后点「发送」");return}
+    navigator.clipboard.readText().then(function(t){
+      if(!t||!t.trim()){cStatus("剪贴板里没有文字");return}
+      chatSend(t);
+    },function(){
+      cStatus("⚠️ 没有获得读取剪贴板的许可。请在弹出的「粘贴」提示上点允许，或在输入框里长按粘贴后点「发送」");
+    });
   }
   $("btn-chat").onclick=startChat;
   $("btn-chat-back").onclick=function(){show("v-list")};
   $("btn-chat-set").onclick=function(){$("btn-settings").onclick();
     setTimeout(function(){var e=$("f-crepo");if(e&&e.scrollIntoView)e.scrollIntoView()},50)};
-  $("chat-send").onclick=chatSend;
+  $("chat-send").onclick=function(){chatSend()};
+  $("chat-paste").onclick=chatPasteSend;
   $("chat-input").addEventListener("input",function(){this.style.height="auto";this.style.height=Math.min(this.scrollHeight,120)+"px"});
   $("chat-msgs").addEventListener("click",function(e){
     var b=e.target.closest("button[data-n]"); if(!b) return;
