@@ -193,7 +193,7 @@ mark{background:var(--hl);color:inherit;border-radius:2px}
     $("btn-refresh").classList.add("spin");
     $("status").textContent="正在同步…";
     return Promise.all([ghGet(cfg,"notes.json"),ghGet(cfg,"categories.json")]).then(function(res){
-      if(res[0]==null) throw new Error("仓库根目录没有找到 notes.json，请先在电脑端执行一次备份并同步到 GitHub");
+      if(res[0]==null) return diagnose(cfg).then(function(m){throw new Error(m)});
       var t=res[0].replace(/^﻿/,"");
       var notes=JSON.parse(t);
       var cats=[]; try{cats=res[1]?JSON.parse(res[1].replace(/^﻿/,"")):[]}catch(e){}
@@ -206,6 +206,17 @@ mark{background:var(--hl);color:inherit;border-radius:2px}
       if(/Failed to fetch|NetworkError|Load failed/i.test(msg)) msg="网络连接失败，正在显示上次同步的内容";
       $("status").textContent="⚠️ "+msg;
     }).then(function(){$("btn-refresh").classList.remove("spin")});
+  }
+  function diagnose(cfg){
+    var name=cfg.owner+"/"+cfg.repo;
+    return fetch("https://api.github.com/repos/"+name,{headers:{
+      "Accept":"application/vnd.github+json","Authorization":"Bearer "+cfg.token},cache:"no-store"})
+    .then(function(r){
+      if(r.status===401) return "令牌无效或已过期，请重新生成令牌";
+      if(r.status===404) return "访问不到仓库 "+name+"：请检查①仓库地址是否写对 ②令牌创建时是否勾选了这个仓库（Only select repositories）③令牌权限是否包含 Contents: Read-only";
+      if(r.ok) return "能访问仓库 "+name+"，但分支 "+(cfg.branch||"main")+" 的根目录里没有 notes.json，请检查分支名，或在电脑端重新备份并同步";
+      return "GitHub 返回 HTTP "+r.status;
+    }).catch(function(){return "网络连接失败"});
   }
   function applyData(d){
     state.notes=(d.notes||[]).slice().sort(function(a,b){
