@@ -1,0 +1,318 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="便签">
+<meta name="theme-color" content="#f5c542">
+<link rel="apple-touch-icon" href="icon.png">
+<title>便签查看器</title>
+<style>
+:root{
+  --bg:#f2f2f7;--card:#fff;--text:#1c1c1e;--sub:#8e8e93;--line:#e5e5ea;
+  --accent:#d99a00;--chip:#e9e9ee;--hl:#ffe680;
+}
+@media (prefers-color-scheme:dark){
+  :root{--bg:#000;--card:#1c1c1e;--text:#f2f2f7;--sub:#8e8e93;--line:#38383a;
+  --accent:#ffc83d;--chip:#2c2c2e;--hl:#6b5500}
+}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;height:100%;background:var(--bg);color:var(--text);
+  font:16px/1.5 -apple-system,BlinkMacSystemFont,"PingFang SC","Helvetica Neue",sans-serif}
+button{font:inherit;color:inherit}
+#app{max-width:720px;margin:0 auto;min-height:100%;position:relative}
+.view{display:none;min-height:100vh;padding-bottom:env(safe-area-inset-bottom)}
+.view.on{display:block}
+
+/* 顶栏 */
+.bar{position:sticky;top:0;z-index:5;background:var(--bg);
+  padding:calc(env(safe-area-inset-top) + 10px) 16px 8px}
+.bar-row{display:flex;align-items:center;gap:8px}
+.bar h1{font-size:28px;margin:0;flex:1}
+.icon-btn{border:0;background:var(--chip);width:38px;height:38px;border-radius:19px;font-size:18px;cursor:pointer}
+.icon-btn.spin{animation:sp 1s linear infinite}
+@keyframes sp{to{transform:rotate(360deg)}}
+.search{width:100%;margin-top:8px;border:0;border-radius:10px;padding:9px 12px;
+  background:var(--chip);color:var(--text);font-size:16px;outline:none}
+.chips{display:flex;gap:8px;overflow-x:auto;padding:10px 0 2px;scrollbar-width:none}
+.chips::-webkit-scrollbar{display:none}
+.chip{flex:none;border:0;background:var(--chip);padding:5px 14px;border-radius:16px;font-size:14px;cursor:pointer}
+.chip.on{background:var(--accent);color:#000;font-weight:600}
+.status{font-size:12px;color:var(--sub);padding:2px 16px 6px}
+
+/* 列表 */
+.list{margin:0 16px 24px;background:var(--card);border-radius:12px;overflow:hidden}
+.item{padding:12px 16px;border-bottom:1px solid var(--line);cursor:pointer}
+.item:last-child{border-bottom:0}
+.item:active{background:var(--chip)}
+.item .t{font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.item .p{color:var(--sub);font-size:14px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;word-break:break-all}
+.item .m{color:var(--sub);font-size:12px;margin-top:2px}
+.tag{background:var(--chip);border-radius:4px;padding:0 6px;margin-left:6px}
+.empty{color:var(--sub);text-align:center;padding:48px 24px}
+mark{background:var(--hl);color:inherit;border-radius:2px}
+
+/* 详情 */
+.detail-body{padding:8px 16px 40px}
+.detail-body h2{margin:8px 0 4px;font-size:22px;word-break:break-all}
+.detail-meta{color:var(--sub);font-size:13px;margin-bottom:12px}
+.content{background:var(--card);border-radius:12px;padding:14px 16px;white-space:pre-wrap;
+  word-break:break-all;font-size:16px;-webkit-user-select:text;user-select:text}
+.back{border:0;background:none;color:var(--accent);font-size:17px;cursor:pointer;padding:0}
+.pill{border:0;background:var(--accent);color:#000;padding:6px 14px;border-radius:16px;font-weight:600;cursor:pointer}
+
+/* 设置 */
+.form{margin:8px 16px 24px}
+.form label{display:block;font-size:13px;color:var(--sub);margin:16px 4px 6px}
+.form input{width:100%;border:0;border-radius:10px;padding:11px 12px;background:var(--card);
+  color:var(--text);font-size:16px;outline:none}
+.form .hint{font-size:12px;color:var(--sub);margin:6px 4px}
+.btn{display:block;width:100%;border:0;border-radius:12px;padding:13px;margin-top:20px;
+  background:var(--accent);color:#000;font-weight:600;font-size:17px;cursor:pointer}
+.btn.ghost{background:var(--chip);color:var(--text);margin-top:10px}
+.err{color:#ff453a;font-size:14px;margin:12px 4px;white-space:pre-wrap}
+</style>
+</head>
+<body>
+<div id="app">
+
+  <!-- 列表页 -->
+  <section class="view" id="v-list">
+    <div class="bar">
+      <div class="bar-row">
+        <h1>便签</h1>
+        <button class="icon-btn" id="btn-refresh" title="从 GitHub 刷新">↻</button>
+        <button class="icon-btn" id="btn-settings" title="设置">⚙︎</button>
+      </div>
+      <input class="search" id="q" type="search" placeholder="搜索标题或内容" autocomplete="off">
+      <div class="chips" id="chips"></div>
+    </div>
+    <div class="status" id="status"></div>
+    <div class="list" id="list"></div>
+  </section>
+
+  <!-- 详情页 -->
+  <section class="view" id="v-detail">
+    <div class="bar">
+      <div class="bar-row">
+        <button class="back" id="btn-back">‹ 返回</button>
+        <span style="flex:1"></span>
+        <button class="pill" id="btn-copy">复制全文</button>
+      </div>
+    </div>
+    <div class="detail-body">
+      <h2 id="d-title"></h2>
+      <div class="detail-meta" id="d-meta"></div>
+      <div class="content" id="d-content"></div>
+    </div>
+  </section>
+
+  <!-- 设置页 -->
+  <section class="view" id="v-settings">
+    <div class="bar">
+      <div class="bar-row">
+        <button class="back" id="btn-set-back">‹ 返回</button>
+        <h1 style="font-size:20px;text-align:center">GitHub 设置</h1>
+        <span style="width:50px"></span>
+      </div>
+    </div>
+    <div class="form">
+      <label>备份仓库地址</label>
+      <input id="f-repo" placeholder="https://github.com/用户名/仓库名" autocapitalize="off" autocorrect="off" spellcheck="false">
+      <label>分支</label>
+      <input id="f-branch" placeholder="main" value="main" autocapitalize="off" autocorrect="off" spellcheck="false">
+      <label>访问令牌（PAT）</label>
+      <input id="f-token" type="password" placeholder="github_pat_…" autocapitalize="off" autocorrect="off" spellcheck="false">
+      <div class="hint">建议在 GitHub 新建一个 Fine-grained token，只授权这个备份仓库，权限选 Contents: Read-only（只读）。令牌只保存在这台手机的浏览器里，不会发给除 GitHub 以外的任何地方。</div>
+      <div class="err" id="f-err"></div>
+      <button class="btn" id="btn-save">保存并同步</button>
+      <button class="btn ghost" id="btn-clear">清除本机数据</button>
+    </div>
+  </section>
+</div>
+
+<script>
+(function(){
+  "use strict";
+  var $ = function(id){return document.getElementById(id)};
+  var KEY_CFG="sn.cfg", KEY_DATA="sn.data";
+  var state={notes:[],cats:[],cat:"全部",q:"",cur:null,syncedAt:null};
+
+  /* ---------- 本地存储（不可用时降级为内存） ---------- */
+  var mem={};
+  function sget(k){try{var v=localStorage.getItem(k);return v}catch(e){return mem[k]||null}}
+  function sset(k,v){try{localStorage.setItem(k,v)}catch(e){mem[k]=v}}
+  function sdel(k){try{localStorage.removeItem(k)}catch(e){delete mem[k]}}
+  function loadJSON(k){try{return JSON.parse(sget(k)||"null")}catch(e){return null}}
+
+  /* ---------- 工具 ---------- */
+  function esc(s){return String(s==null?"":s).replace(/[&<>"']/g,function(c){
+    return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]})}
+  function hl(text,q){
+    var t=esc(text); if(!q) return t;
+    var re=new RegExp(q.replace(/[.*+?^${}()|[\]\\]/g,"\\$&"),"gi");
+    return t.replace(re,function(m){return "<mark>"+m+"</mark>"});
+  }
+  function fmt(d){
+    if(!d) return "";
+    var x=new Date(d); if(isNaN(x)) return String(d);
+    var p=function(n){return (n<10?"0":"")+n};
+    return x.getFullYear()+"-"+p(x.getMonth()+1)+"-"+p(x.getDate())+" "+p(x.getHours())+":"+p(x.getMinutes());
+  }
+  function show(id){
+    ["v-list","v-detail","v-settings"].forEach(function(v){$(v).classList.toggle("on",v===id)});
+    window.scrollTo(0,0);
+  }
+  function parseRepo(u){
+    var m=String(u||"").trim().replace(/\.git$/,"").replace(/\/+$/,"")
+      .match(/(?:github\.com[\/:])?([\w.-]+)\/([\w.-]+)$/);
+    return m?{owner:m[1],repo:m[2]}:null;
+  }
+
+  /* ---------- GitHub 读取 ---------- */
+  function ghGet(cfg,path){
+    var url="https://api.github.com/repos/"+cfg.owner+"/"+cfg.repo+"/contents/"+path+
+            "?ref="+encodeURIComponent(cfg.branch||"main")+"&_="+Date.now();
+    return fetch(url,{headers:{
+      "Accept":"application/vnd.github.raw+json",
+      "Authorization":"Bearer "+cfg.token,
+      "X-GitHub-Api-Version":"2022-11-28"
+    },cache:"no-store"}).then(function(r){
+      if(r.status===404) return null;
+      if(r.status===401||r.status===403) throw new Error("令牌无效或没有该仓库的读取权限（HTTP "+r.status+"）");
+      if(!r.ok) throw new Error("GitHub 返回 HTTP "+r.status);
+      return r.text();
+    });
+  }
+  function sync(){
+    var cfg=loadJSON(KEY_CFG);
+    if(!cfg){show("v-settings");return Promise.resolve()}
+    $("btn-refresh").classList.add("spin");
+    $("status").textContent="正在同步…";
+    return Promise.all([ghGet(cfg,"notes.json"),ghGet(cfg,"categories.json")]).then(function(res){
+      if(res[0]==null) throw new Error("仓库根目录没有找到 notes.json，请先在电脑端执行一次备份并同步到 GitHub");
+      var t=res[0].replace(/^﻿/,"");
+      var notes=JSON.parse(t);
+      var cats=[]; try{cats=res[1]?JSON.parse(res[1].replace(/^﻿/,"")):[]}catch(e){}
+      var data={notes:notes,cats:cats,syncedAt:Date.now()};
+      sset(KEY_DATA,JSON.stringify(data));
+      applyData(data);
+      $("status").textContent="已同步 · "+fmt(data.syncedAt)+" · 共 "+notes.length+" 条";
+    }).catch(function(e){
+      var msg=(e&&e.message)||String(e);
+      if(/Failed to fetch|NetworkError|Load failed/i.test(msg)) msg="网络连接失败，正在显示上次同步的内容";
+      $("status").textContent="⚠️ "+msg;
+    }).then(function(){$("btn-refresh").classList.remove("spin")});
+  }
+  function applyData(d){
+    state.notes=(d.notes||[]).slice().sort(function(a,b){
+      return new Date(b.LastModified||0)-new Date(a.LastModified||0)});
+    var set={}; (d.cats||[]).forEach(function(c){set[c]=1});
+    state.notes.forEach(function(n){if(n.Category) set[n.Category]=1});
+    state.cats=Object.keys(set);
+    state.syncedAt=d.syncedAt;
+    if(state.cat!=="全部" && !set[state.cat]) state.cat="全部";
+    render();
+  }
+
+  /* ---------- 渲染 ---------- */
+  function render(){
+    var chips=["全部"].concat(state.cats);
+    $("chips").innerHTML=chips.map(function(c){
+      return '<button class="chip'+(c===state.cat?' on':'')+'" data-c="'+esc(c)+'">'+esc(c)+'</button>'}).join("");
+    var q=state.q.trim(), ql=q.toLowerCase();
+    var rows=state.notes.filter(function(n){
+      if(state.cat!=="全部" && n.Category!==state.cat) return false;
+      if(!q) return true;
+      return String(n.Title||"").toLowerCase().indexOf(ql)>=0 || String(n.Content||"").toLowerCase().indexOf(ql)>=0;
+    });
+    if(!rows.length){
+      $("list").innerHTML='<div class="empty">'+(state.notes.length?'没有匹配的便签':'还没有数据<br>点右上角 ⚙︎ 填写 GitHub 信息')+'</div>';
+      return;
+    }
+    $("list").innerHTML=rows.map(function(n){
+      var body=String(n.Content||"").replace(/\s+/g," ").trim();
+      if(q){ // 让命中的内容出现在预览里
+        var i=body.toLowerCase().indexOf(ql);
+        if(i>40) body="…"+body.slice(i-20);
+      }
+      body=body.slice(0,160);
+      return '<div class="item" data-id="'+esc(n.Id)+'"><div class="t">'+hl(n.Title||"（无标题）",q)+'</div>'+
+        '<div class="p">'+hl(body,q)+'</div>'+
+        '<div class="m">'+esc(fmt(n.LastModified))+(n.Category?'<span class="tag">'+esc(n.Category)+'</span>':'')+'</div></div>';
+    }).join("");
+  }
+  function openNote(id){
+    var n=state.notes.filter(function(x){return x.Id===id})[0]; if(!n) return;
+    state.cur=n;
+    $("d-title").textContent=n.Title||"（无标题）";
+    $("d-meta").textContent=fmt(n.LastModified)+(n.Category?" · "+n.Category:"");
+    $("d-content").textContent=n.Content||"";
+    show("v-detail");
+  }
+  function copyText(t){
+    if(navigator.clipboard&&navigator.clipboard.writeText) return navigator.clipboard.writeText(t);
+    return new Promise(function(res,rej){
+      var ta=document.createElement("textarea");ta.value=t;ta.style.position="fixed";ta.style.opacity="0";
+      document.body.appendChild(ta);ta.select();
+      try{document.execCommand("copy")?res():rej()}catch(e){rej(e)}
+      document.body.removeChild(ta);
+    });
+  }
+
+  /* ---------- 事件 ---------- */
+  $("q").addEventListener("input",function(e){state.q=e.target.value;render()});
+  $("chips").addEventListener("click",function(e){
+    var b=e.target.closest(".chip"); if(!b) return; state.cat=b.getAttribute("data-c"); render()});
+  $("list").addEventListener("click",function(e){
+    var it=e.target.closest(".item"); if(it) openNote(it.getAttribute("data-id"))});
+  $("btn-back").onclick=function(){show("v-list")};
+  $("btn-refresh").onclick=sync;
+  $("btn-copy").onclick=function(){
+    var b=$("btn-copy");
+    copyText(state.cur?String(state.cur.Content||""):"").then(function(){b.textContent="已复制 ✓"},
+      function(){b.textContent="复制失败"});
+    setTimeout(function(){b.textContent="复制全文"},1500);
+  };
+  $("btn-settings").onclick=function(){
+    var c=loadJSON(KEY_CFG)||{};
+    $("f-repo").value=c.owner?("https://github.com/"+c.owner+"/"+c.repo):"";
+    $("f-branch").value=c.branch||"main";
+    $("f-token").value=c.token||"";
+    $("f-err").textContent="";
+    show("v-settings");
+  };
+  $("btn-set-back").onclick=function(){show("v-list")};
+  $("btn-save").onclick=function(){
+    var r=parseRepo($("f-repo").value), tk=$("f-token").value.trim();
+    if(!r){$("f-err").textContent="仓库地址格式不对，应类似 https://github.com/用户名/仓库名";return}
+    if(!tk){$("f-err").textContent="请填写访问令牌";return}
+    sset(KEY_CFG,JSON.stringify({owner:r.owner,repo:r.repo,branch:$("f-branch").value.trim()||"main",token:tk}));
+    $("f-err").textContent="";
+    show("v-list");
+    sync();
+  };
+  $("btn-clear").onclick=function(){
+    if(!confirm("确定清除本机保存的令牌和便签缓存吗？（不会影响 GitHub 上的数据）")) return;
+    sdel(KEY_CFG); sdel(KEY_DATA);
+    state.notes=[];state.cats=[];state.cat="全部";render();
+    $("status").textContent="";
+    show("v-settings");
+  };
+  document.addEventListener("visibilitychange",function(){
+    if(!document.hidden && loadJSON(KEY_CFG) && $("v-list").classList.contains("on")) sync();
+  });
+
+  /* ---------- 启动 ---------- */
+  var cached=loadJSON(KEY_DATA);
+  if(cached){applyData(cached);$("status").textContent="上次同步 · "+fmt(cached.syncedAt)}
+  show(loadJSON(KEY_CFG)?"v-list":"v-settings");
+  if(!cached) render();
+  if(loadJSON(KEY_CFG)) sync();
+})();
+</script>
+</body>
+</html>
