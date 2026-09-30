@@ -61,6 +61,20 @@ mark{background:var(--hl);color:inherit;border-radius:2px}
 .detail-meta{color:var(--sub);font-size:13px;margin-bottom:12px}
 .content{background:var(--card);border-radius:12px;padding:14px 16px;white-space:pre-wrap;
   word-break:break-all;font-size:16px;-webkit-user-select:text;user-select:text}
+.editor{position:relative;background:var(--card);border-radius:12px}
+.editor .backdrop,.editor textarea{margin:0;padding:14px 16px;border:0;font:16px/1.5 -apple-system,BlinkMacSystemFont,"PingFang SC","Helvetica Neue",sans-serif;
+  white-space:pre-wrap;word-break:break-all;overflow-wrap:anywhere;letter-spacing:normal;width:100%}
+.editor .backdrop{position:absolute;left:0;top:0;right:0;color:transparent;pointer-events:none;overflow:hidden;border-radius:12px}
+.editor .backdrop mark{background:rgba(255,190,0,.32);color:transparent;border-radius:3px}
+.editor textarea{position:relative;display:block;background:transparent;color:var(--text);
+  resize:none;overflow:hidden;outline:none;-webkit-appearance:none;border-radius:12px;caret-color:var(--accent)}
+.tip{color:var(--sub);font-size:12px;margin:10px 4px 0}
+.toast{position:fixed;left:50%;top:calc(env(safe-area-inset-top) + 70px);transform:translateX(-50%) translateY(-160px);
+  background:#34a853;color:#fff;padding:8px 18px;border-radius:20px;font-size:15px;font-weight:600;
+  transition:transform .2s;z-index:20;pointer-events:none;white-space:nowrap}
+.toast.on{transform:translateX(-50%) translateY(0)}
+.toast.warn{background:#8e8e93}
+.pill.alt{background:var(--chip);color:var(--text);margin-right:8px}
 .back{border:0;background:none;color:var(--accent);font-size:17px;cursor:pointer;padding:0}
 .pill{border:0;background:var(--accent);color:#000;padding:6px 14px;border-radius:16px;font-weight:600;cursor:pointer}
 
@@ -77,6 +91,7 @@ mark{background:var(--hl);color:inherit;border-radius:2px}
 </style>
 </head>
 <body>
+<div class="toast" id="toast"></div>
 <div id="app">
 
   <!-- 列表页 -->
@@ -100,13 +115,15 @@ mark{background:var(--hl);color:inherit;border-radius:2px}
       <div class="bar-row">
         <button class="back" id="btn-back">‹ 返回</button>
         <span style="flex:1"></span>
-        <button class="pill" id="btn-copy">复制全文</button>
+        <button class="pill alt" id="btn-copy-all">复制全文</button>
+        <button class="pill" id="btn-copy">📋 复制</button>
       </div>
     </div>
     <div class="detail-body">
       <h2 id="d-title"></h2>
       <div class="detail-meta" id="d-meta"></div>
-      <div class="content" id="d-content"></div>
+      <div class="editor"><div class="backdrop" id="backdrop"></div><textarea id="d-content" readonly spellcheck="false" autocomplete="off" autocorrect="off" autocapitalize="off" inputmode="none"></textarea></div>
+      <div class="tip">选中文字后点「复制」＝复制选中部分；没选中＝复制高亮的那一行（点一下文字可以移动高亮行）。</div>
     </div>
   </section>
 
@@ -261,9 +278,48 @@ mark{background:var(--hl);color:inherit;border-radius:2px}
     state.cur=n;
     $("d-title").textContent=n.Title||"（无标题）";
     $("d-meta").textContent=fmt(n.LastModified)+(n.Category?" · "+n.Category:"");
-    $("d-content").textContent=n.Content||"";
+    var ta=$("d-content"); ta.value=n.Content||"";
     show("v-detail");
+    fitEditor(); ta.setSelectionRange(0,0); paintLine();
   }
+  /* ---------- 复制：有选中复制选中，否则复制光标所在行（与电脑端一致） ---------- */
+  function fitEditor(){var ta=$("d-content");ta.style.height="auto";ta.style.height=ta.scrollHeight+"px";
+    $("backdrop").style.height=ta.scrollHeight+"px"}
+  function lineRange(text,caret){
+    caret=Math.min(Math.max(caret,0),text.length);
+    var st=caret===0?0:text.lastIndexOf("\n",caret-1)+1;
+    var en=text.indexOf("\n",caret); if(en<0) en=text.length;
+    return [st,en];
+  }
+  function paintLine(){
+    var ta=$("d-content"), t=ta.value, bd=$("backdrop");
+    if(ta.selectionEnd>ta.selectionStart){bd.innerHTML=esc(t)+"\u200b";return}
+    var r=lineRange(t,ta.selectionStart);
+    bd.innerHTML=esc(t.slice(0,r[0]))+"<mark>"+esc(t.slice(r[0],r[1]))+"</mark>"+esc(t.slice(r[1]))+"\u200b";
+  }
+  function toast(msg,warn){
+    var el=$("toast");el.textContent=msg;el.className="toast on"+(warn?" warn":"");
+    clearTimeout(toast.t);toast.t=setTimeout(function(){el.className="toast"},1400);
+  }
+  function currentCopyText(){
+    var ta=$("d-content"), s=ta.selectionStart, e=ta.selectionEnd;
+    if(e>s) return ta.value.slice(s,e);
+    var r=lineRange(ta.value,s);
+    return ta.value.slice(r[0],r[1]).replace(/\r$/,"");
+  }
+  function doCopy(text){
+    var ta=$("d-content"), s=ta.selectionStart, e=ta.selectionEnd;
+    if(!text){toast("没有可复制的内容",true);return}
+    copyText(text).then(function(){toast("✓ 已复制")},function(){toast("复制失败",true)})
+    .then(function(){ // 把焦点和选区还给文本框，保持选区/光标位置可见
+      try{ta.focus({preventScroll:true});ta.setSelectionRange(s,e);paintLine()}catch(x){}
+    });
+  }
+  ["click","keyup","touchend","mouseup","select"].forEach(function(ev){
+    $("d-content").addEventListener(ev,function(){setTimeout(paintLine,0)})});
+  document.addEventListener("selectionchange",function(){
+    if(document.activeElement===$("d-content")) paintLine()});
+  window.addEventListener("resize",function(){if($("v-detail").classList.contains("on")){fitEditor();paintLine()}});
   function copyText(t){
     if(navigator.clipboard&&navigator.clipboard.writeText) return navigator.clipboard.writeText(t);
     return new Promise(function(res,rej){
@@ -282,12 +338,9 @@ mark{background:var(--hl);color:inherit;border-radius:2px}
     var it=e.target.closest(".item"); if(it) openNote(it.getAttribute("data-id"))});
   $("btn-back").onclick=function(){show("v-list")};
   $("btn-refresh").onclick=sync;
-  $("btn-copy").onclick=function(){
-    var b=$("btn-copy");
-    copyText(state.cur?String(state.cur.Content||""):"").then(function(){b.textContent="已复制 ✓"},
-      function(){b.textContent="复制失败"});
-    setTimeout(function(){b.textContent="复制全文"},1500);
-  };
+  $("btn-copy").addEventListener("mousedown",function(e){e.preventDefault()}); // 桌面浏览器点按钮时不丢选区
+  $("btn-copy").onclick=function(){doCopy(currentCopyText())};
+  $("btn-copy-all").onclick=function(){doCopy(state.cur?String(state.cur.Content||""):"")};
   $("btn-settings").onclick=function(){
     var c=loadJSON(KEY_CFG)||{};
     $("f-repo").value=c.owner?("https://github.com/"+c.owner+"/"+c.repo):"";
